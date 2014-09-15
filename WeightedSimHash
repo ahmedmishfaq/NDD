@@ -1,0 +1,296 @@
+/*
+ * To change this license header, choose License Headers in Project Properties.
+ * To change this template file, choose Tools | Templates
+ * and open the template in the editor.
+ */
+package simhashreuter;
+
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.BitSet;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.Scanner;
+import java.util.Set;
+import java.util.StringTokenizer;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import javax.swing.JOptionPane;
+import javax.swing.text.Document;
+
+/**
+ *
+ * @author Mishfaq
+ */
+public class WeightedSimHash {
+
+    String dirPath = "E:\\reuters\\training";
+    double multMax = 0.0;
+    double multMin = 2.0;
+
+    double idfMax = 100;
+    double idfMin = 0.1;
+
+    double meantokenFreq = 10;
+    double maxtokenFreq = 100;
+    double mintokenFreq = 0;
+    int totalNoOfDoc = 0;
+    int totalNoOfTestDoc = 0;
+    //double cosineSimThreshold = 0.01;
+
+    public int dimension = 64;
+    public int k = 15;  // allowed hamming distance threshold
+
+    ArrayList<HashMap> docList = new ArrayList<HashMap>();  // list of all documents in the collection with the tokens in it with their respective frequencies
+    // each entry in docList is key = fileName, value = a hashmap containing (key = token, value = frequency)
+    HashMap tokenList = new HashMap();    // token with their hash values which will be constant across the collection and frequency of occurence
+    // which will determine the TF-IDF
+    HashMap tokenHash = new HashMap();  // has the 64 bit hash for each token
+    HashMap documentHash = new HashMap();   // has the 64 bit hash for each document
+    HashMap tokenIDF = new HashMap(); // contains IDF values for each token
+    //  ArrayList<String> freqList = new ArrayList<String>();
+    ArrayList<HashMap> testdocList = new ArrayList<HashMap>();        // list of all documents in the collection with the tokens in it with their respective frequencies
+//    
+//    HashMap tokenHash = new HashMap();  // has the 64 bit hash for each token
+//    HashMap documentHash = new HashMap();   // has the 64 bit hash for each document
+//    HashMap tokenIDF = new HashMap(); // contains IDF values for each token
+//    
+//    documents for which near duplicates has been created chosenChildren = {"1526", "5189", "4152", "489", "3645"};
+
+    /* this multiplication factor is calculated based on frequency and bit position instead of using idf
+     for simple calculation, meantokenFreq is considered to be 10 */
+    double multiplicationFactor(int frequency, int bitPos) {
+        double multAvg = (multMax + multMin) / 2;
+
+        return 0;
+    }
+
+    public static void main(String[] args) throws Exception {
+
+        System.out.println("Hello! Starting SimHashReuter!!");
+        WeightedSimHash wsh = new WeightedSimHash();
+        wsh.preProcessInputDirectory();
+        System.out.println("End processing a directory");
+        //   simHashReuter.processTestdirectory();
+        //simHashReuter.testSimhash();
+        //   simHashReuter.processAQuery();
+        long start = System.currentTimeMillis();
+        System.out.println("Start Time: " + start);
+        long end = System.currentTimeMillis();
+        System.out.println("End Time: " + end);
+        System.out.println("Elapsed Time: " + (end - start));
+
+    }
+
+    private void preProcessInputDirectory() {
+
+        /**
+         * ******** input directory *********
+         */
+        System.out.println("Start Processing a Directory");
+        File dir = new File(dirPath);
+        String[] children = dir.list();
+        HashMap docTermList = new HashMap();
+        if (children == null) {
+            // Either dir does not exist or is not a directory
+            System.out.println("Either dir does not exist or is not a directory");
+            System.exit(0);
+        } else {
+            totalNoOfDoc = children.length;
+
+            /* now process each individual document. 
+             1. create document vector and document fingerprint */
+            for (int i = 0; i < children.length; i++) {
+                HashMap doc = new HashMap();
+                docTermList = createDocTermList(dirPath + "\\" + children[i].toString());  // this will hold all the tokens with frequency
+                doc.put(children[i].toString(), docTermList);
+                docList.add(doc);
+
+                // now put this document and created fingerprint in docHash
+                //documentHash.put(children[i].toString(), createDocHash(docTermList));
+                System.out.println("Document: " + children[i].toString() + documentHash.get(children[i].toString()));
+            }
+
+            System.out.println("End creating doc term list for all documents");
+
+            /* need IDF for each token to create tokenHash, in this pass we have the idfs ready. So they would be taken as input for calculating 
+             multiplication factors and would be used       */
+            // first iterate through tokHash and tokenIDF for creating token SimHash
+            Iterator it = tokenList.entrySet().iterator();
+            //  Iterator tokenHashIterator = tokenHash.entrySet().iterator();
+            double mfRange = multMax - multMin;
+
+            while (it.hasNext()) {
+                Map.Entry pairs = (Map.Entry) it.next();
+                //System.out.println(pairs.getKey() + " = " + pairs.getValue());
+                String token = (String) pairs.getKey();
+                int frequency = (int) (pairs.getValue());
+                System.out.print("Token: " + token + " frequency: " + frequency + " ");
+
+                if (frequency > maxtokenFreq) {
+                    frequency = (int) maxtokenFreq;
+                }
+                double[] tokenHashValue = new double[dimension];
+                for (int i = 0; i < dimension; i++) {
+                    double val = Math.random() * 2 - 1;
+                    double mf = multMin;
+                    mf += mfRange * (((double) (maxtokenFreq - frequency) / (maxtokenFreq)) - ((double) i / (dimension - 1)));
+                    tokenHashValue[i] = val * mf;
+                    System.out.print(tokenHashValue[i] + " ");
+                }
+
+                tokenHash.put(token, tokenHashValue);
+                //System.out.print("Token: "+token);
+                System.out.println("\n");
+            }
+
+            // now we have hash for all terms. time to bulid fingerprint for documents
+            for (int i = 0; i < children.length; i++) {
+                documentHash.put(children[i].toString(), createDocHash(docTermList));
+            }
+
+        }
+
+    }
+
+    private HashMap createDocTermList(String fullFilePath) {
+        System.out.println("Creating term list of a single document");
+        /* tempTermList contains terms and corresponding frequency in the document */
+        HashMap tempTermList = new HashMap();
+        Scanner in = null;
+        try {
+            in = new Scanner(new File(fullFilePath));
+        } catch (FileNotFoundException ex) {
+            Logger.getLogger(SimHashReuter.class.getName()).log(Level.SEVERE, null, ex);
+        }
+
+        int currentCount = 0;
+        /* start scanning within the document */
+        while (in.hasNext("\\S+")) {
+            String currentword = in.next("\\S+");
+            if (tempTermList.containsKey(currentword)) {
+                // if this token is encountered before in this document
+                currentCount = (int) tempTermList.get(currentword);
+                currentCount++;
+                tempTermList.put(currentword, currentCount);
+            } else {
+                tempTermList.put(currentword, new Integer(1));
+                // this token is encountered for the first time in this document, so need to add that in IDF count
+                if (tokenIDF.containsKey(currentword)) {
+                    // token encountered before, not in this document though
+                    double docCountforcurrentword = (double) tokenIDF.get(currentword);
+                    docCountforcurrentword += 1;
+                    tokenIDF.put(currentword, new Double(docCountforcurrentword));
+                } else {
+                    // token was never encountered before
+                    tokenIDF.put(currentword, new Double(1.0));
+                }
+            }
+
+            if (tokenList.containsKey(currentword)) {
+                // this token is encountered before
+                int currfreq = (int) tokenList.get(currentword);
+                currfreq++;
+                tokenList.put(currentword, currfreq);
+            } else {
+                // this token is encountered for the first time in any document
+                System.out.println(currentword + " is encountered for first time");
+                tokenList.put(currentword, new Integer(1));
+
+                // since for the first time, it also need to be put in tokenHash
+//                BitSet b = new BitSet(dimension);
+//                b.clear();
+//                for (int i = 0; i < dimension; i++) {
+//                    if ((Math.random() * 1) < 0.5) {
+//                        b.set(i);
+//                    }
+//                }
+//                
+//                
+//                
+//                
+//                tokenHash.put(currentword, b);
+                //System.out.println(currentword+ " is hashed into" + b.toString());
+            }
+        }
+        return tempTermList;
+    }
+
+    /*create doc hash for a given  document term list */
+    private BitSet createDocHash(HashMap docTermList) {
+        BitSet docHash = new BitSet(dimension);
+        double docHashTotal[] = new double[dimension];
+        for (int i = 0; i < dimension; i++) {
+            docHashTotal[i] = 0;
+        }
+        for (int i = 0; i < dimension; i++) {
+            docHash.clear();
+        }
+        Iterator it = docTermList.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry pairs = (Map.Entry) it.next();
+            //System.out.println(pairs.getKey() + " = " + pairs.getValue());
+            String token = (String) pairs.getKey();
+            double tokHashVal[] = (double[]) tokenHash.get(token);
+            //BitSet tokHash = (BitSet) tokenHash.get(token);
+            for (int i = 0; i < dimension; i++) {
+                docHashTotal[i]+= tokHashVal[i];
+            }
+        }
+
+        for (int i = 0; i < dimension; i++) {
+            if (docHashTotal[i] > 0) {
+                docHash.set(i);
+            } else {
+                docHash.clear(i);
+            }
+        }
+        //docHash.toString();
+        return docHash;
+
+    }
+
+    private BitSet createDocHashOld(HashMap docTermList) {
+        BitSet docHash = new BitSet(dimension);
+        int docHashTotal[] = new int[dimension];
+        for (int i = 0; i < dimension; i++) {
+            docHashTotal[i] = 0;
+        }
+        for (int i = 0; i < dimension; i++) {
+            docHash.clear();
+        }
+        Iterator it = docTermList.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry pairs = (Map.Entry) it.next();
+            //System.out.println(pairs.getKey() + " = " + pairs.getValue());
+            String token = (String) pairs.getKey();
+            BitSet tokHash = (BitSet) tokenHash.get(token);
+            for (int i = 0; i < dimension; i++) {
+                if (tokHash.get(i)) {
+                    docHashTotal[i]++;
+                } else {
+                    docHashTotal[i]--;
+                }
+            }
+
+            //it.remove(); // avoids a ConcurrentModificationException
+        }
+
+        for (int i = 0; i < dimension; i++) {
+            if (docHashTotal[i] > 0) {
+                docHash.set(i);
+            } else {
+                docHash.clear(i);
+            }
+        }
+        //docHash.toString();
+        return docHash;
+    }
+
+}
